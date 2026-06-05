@@ -60,8 +60,8 @@ Pre-built installers are available in the [**Releases**](https://github.com/kamr
 
 ```bash
 # Clone the repository
-git clone https://github.com/Kamran/desktop-organizer.git
-cd desktop-organizer
+git clone https://github.com/kamranakmal749/Desktop-Organizer.git
+cd Desktop-Organizer
 
 # Install frontend dependencies
 npm install
