@@ -1,73 +1,109 @@
-# React + TypeScript + Vite
+# 🗂️ Desktop Organizer
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A sleek, modern desktop application that scans your cluttered folders and intelligently organizes files into categorized subdirectories — all with a beautiful dark-theme dashboard.
 
-Currently, two official plugins are available:
+Built with **Tauri v2**, **React**, **TypeScript**, and **Rust**, Desktop Organizer gives you full control over how your files are sorted, with preview mode, undo support, and a visual storage breakdown.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+---
 
-## React Compiler
+## ✨ Features
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+| Feature | Description |
+|---------|-------------|
+| **🔍 File Search & Filter** | Instantly search through discovered files by name or extension with live, case-insensitive filtering. "Check All" operates only on visible (filtered) results. |
+| **📊 Storage Breakdown** | A multi-colored horizontal progress bar with legend showing exactly how much space each file category (Documents, Images, Videos, etc.) consumes. |
+| **🔬 Dry Run / Preview Mode** | Toggle preview mode to see exactly where files *would* be moved before committing any changes. |
+| **↩️ Undo / Revert** | Every organization is recorded in a `history.json` file. One click restores all files to their original locations. |
+| **📁 Nesting Toggle** | Choose whether category folders are nested inside a "Sorted Workspace" folder or created directly in the target root. |
+| **📂 Smart Categorization** | Files are automatically sorted into 8 categories — Documents, Images, Videos, Audio, Archives, Executables, Code, and Others — based on file extension. |
+| **📎 Collision Handling** | If a file with the same name already exists in the destination, a numbered suffix (`(1)`, `(2)`, etc.) is appended automatically. |
+| **🎯 Folder Picker** | Use the native Windows folder dialog to select any directory for scanning and organization. |
+| **📏 File Size Formatting** | All file sizes are displayed in human-readable MB/GB format. |
 
-## Expanding the ESLint configuration
+---
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## 🛠️ Tech Stack
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+| Layer | Technology |
+|-------|-----------|
+| **Desktop Framework** | [Tauri v2](https://v2.tauri.app/) |
+| **Frontend** | React 19 + TypeScript |
+| **Build Tool** | Vite 8 |
+| **Backend** | Rust (with `tauri::command` IPC) |
+| **Serialization** | Serde / Serde JSON |
+| **Native Dialogs** | `@tauri-apps/plugin-dialog` |
+| **Installer** | NSIS & MSI (Windows) |
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+---
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## 📥 Download & Install
+
+Pre-built installers are available in the [**Releases**](https://github.com/Kamran/desktop-organizer/releases) section.
+
+1. Go to the [Releases page](https://github.com/Kamran/desktop-organizer/releases)
+2. Download the latest `Desktop Organizer_0.1.0_x64-setup.exe` (NSIS installer)
+3. Run the installer and follow the on-screen instructions
+
+> **Note:** Windows may show a SmartScreen warning since the installer is not code-signed. Click **"More info"** → **"Run anyway"** to proceed.
+
+---
+
+## 🚀 Building from Source
+
+### Prerequisites
+
+- [Node.js](https://nodejs.org/) v18+
+- [Rust](https://www.rust-lang.org/) (latest stable)
+- [Tauri v2 system dependencies](https://v2.tauri.app/start/prerequisites/) (WebView2, MSVC build tools)
+
+### Steps
+
+```bash
+# Clone the repository
+git clone https://github.com/Kamran/desktop-organizer.git
+cd desktop-organizer
+
+# Install frontend dependencies
+npm install
+
+# Run in development mode
+npm run tauri dev
+
+# Build for production
+npm run tauri build
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+The production installer will be output to:
+- `src-tauri/target/release/bundle/nsis/Desktop Organizer_0.1.0_x64-setup.exe`
+- `src-tauri/target/release/bundle/msi/Desktop Organizer_0.1.0_x64_en-US.msi`
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+---
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## 📁 Project Structure
+
 ```
+desktop-organizer/
+├── src/                    # React frontend
+│   ├── App.tsx             # Main application component
+│   ├── App.css             # Application styles
+│   ├── main.tsx            # Entry point
+│   └── index.css           # Global styles / CSS variables
+├── src-tauri/              # Rust backend
+│   ├── src/
+│   │   ├── lib.rs          # Tauri commands & business logic
+│   │   └── main.rs         # Application entry point
+│   ├── Cargo.toml          # Rust dependencies
+│   └── tauri.conf.json     # Tauri configuration
+├── package.json            # Node dependencies & scripts
+└── .gitignore              # Git ignore rules
+```
+
+---
+
+## 📄 License
+
+This project is open source and available under the [MIT License](LICENSE).
+
+---
+
+*Made with ❤️ using Tauri, React, and Rust*
