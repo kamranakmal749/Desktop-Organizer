@@ -40,7 +40,7 @@ Built with **Tauri v2**, **React**, **TypeScript**, and **Rust**, Desktop Organi
 
 Pre-built installers are available in the [**Releases**](https://github.com/Kamran/desktop-organizer/releases) section.
 
-1. Go to the [Releases page](https://github.com/Kamran/desktop-organizer/releases)
+1. Go to the [Releases page](https://github.com/kamranakmal749/Desktop-Organizer/releases)
 2. Download the latest `Desktop Organizer_0.1.0_x64-setup.exe` (NSIS installer)
 3. Run the installer and follow the on-screen instructions
 
