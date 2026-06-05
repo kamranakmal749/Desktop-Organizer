@@ -48,34 +48,54 @@ Pre-built installers are available in the [**Releases**](https://github.com/kamr
 
 ---
 
-## 🚀 Building from Source
+## 📦 Building from Source
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/) v18+
-- [Rust](https://www.rust-lang.org/) (latest stable)
-- [Tauri v2 system dependencies](https://v2.tauri.app/start/prerequisites/) (WebView2, MSVC build tools)
+Before running the build commands, please ensure your system has the necessary dependencies installed based on your OS:
 
-### Steps
+#### 🍏 macOS
+Run the following command to install Xcode Command Line Tools:
+```bash
+xcode-select --install
+```
+*(Optional) Install Rust via rustup.rs if not already installed.*
+
+#### 🐧 Linux (Debian/Ubuntu)
+Install the core system dependencies required by Tauri v2:
+```bash
+sudo apt update && sudo apt install -y libwebkit2gtk-4.1-dev build-essential curl wget file libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
+```
+
+#### 🪟 Windows
+Ensure you have the following installed and configured:
+* Node.js v18+
+* Rust (Latest stable)
+* Tauri v2 System Dependencies (WebView2 & MSVC Build Tools)
+
+---
+
+### Steps to Run & Build
+
+Follow these steps to set up the project locally:
 
 ```bash
-# Clone the repository
+# 1. Clone the repository
 git clone https://github.com/kamranakmal749/Desktop-Organizer.git
 cd Desktop-Organizer
 
-# Install frontend dependencies
+# 2. Install frontend dependencies
 npm install
 
-# Run in development mode
+# 3. Run the app in development mode
 npm run tauri dev
 
-# Build for production
+# 4. Build the production-ready application
 npm run tauri build
 ```
 
-The production installer will be output to:
-- `src-tauri/target/release/bundle/nsis/Desktop Organizer_0.1.0_x64-setup.exe`
-- `src-tauri/target/release/bundle/msi/Desktop Organizer_0.1.0_x64_en-US.msi`
+The production installer binary will be generated inside:
+`src-tauri/target/release/bundle/`
 
 ---
 
