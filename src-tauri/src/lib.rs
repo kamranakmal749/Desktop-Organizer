@@ -292,12 +292,23 @@ async fn revert_organization(target_path: String) -> Result<String, String> {
         p
     };
 
-    let organized_root = base.join("Sorted Workspace");
-    let history_path = organized_root.join("history.json");
-
-    if !history_path.exists() {
-        return Err("No history file found. Nothing to revert.".to_string());
-    }
+    // Dynamically locate history.json:
+    // 1. Check inside "Sorted Workspace" subfolder (nested mode)
+    // 2. If not found, check directly in the target root (flat mode)
+    let (organized_root, history_path) = {
+        let nested = base.join("Sorted Workspace");
+        let nested_history = nested.join("history.json");
+        if nested_history.exists() {
+            (nested, nested_history)
+        } else {
+            let flat_history = base.join("history.json");
+            if flat_history.exists() {
+                (base.clone(), flat_history)
+            } else {
+                return Err("No history file found. Nothing to revert.".to_string());
+            }
+        }
+    };
 
     // Read and parse history
     let history_content = fs::read_to_string(&history_path)
@@ -347,8 +358,10 @@ async fn revert_organization(target_path: String) -> Result<String, String> {
     // Remove history file
     let _ = fs::remove_file(&history_path);
 
-    // Remove Sorted Workspace root if empty
-    let _ = fs::remove_dir(&organized_root);
+    // Remove Sorted Workspace root if empty (only for nested mode)
+    if organized_root != base {
+        let _ = fs::remove_dir(&organized_root);
+    }
 
     Ok(format!(
         "Successfully reverted {} file(s) back to their original locations.",
