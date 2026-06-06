@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+use tauri::Manager;
 
 #[derive(Debug, Serialize)]
 pub struct UnorganizedFile {
@@ -395,6 +396,15 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            #[cfg(target_os = "windows")]
+            {
+                use window_vibrancy::apply_acrylic;
+                let window = app.get_webview_window("main").unwrap();
+                let _ = apply_acrylic(&window, Some((20, 20, 20, 10)));
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             get_unorganized_files,
             execute_organization,

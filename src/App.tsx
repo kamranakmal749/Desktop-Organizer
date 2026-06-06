@@ -268,6 +268,7 @@ function App() {
       : 'C:\\Users\\Kamran\\Downloads';
 
   return (
+    <div className="app-container">
     <div className="dashboard">
       {/* Header */}
       <header className="dashboard-header">
@@ -595,6 +596,7 @@ function App() {
           </div>
         </section>
       )}
+    </div>
     </div>
   );
 }

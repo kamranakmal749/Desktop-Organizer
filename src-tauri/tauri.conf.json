@@ -14,7 +14,9 @@
       {
         "title": "Desktop Organizer",
         "width": 1024,
-        "height": 768
+        "height": 768,
+        "transparent": true,
+        "decorations": true
       }
     ],
     "security": {
