@@ -9,6 +9,7 @@ export interface UnorganizedFile {
   file_path: string;
   file_extension: string;
   file_size: number;
+  category: string;
 }
 
 // Interface matching Rust FileMove struct
@@ -115,10 +116,21 @@ function App() {
 
   const toggleAll = useCallback(() => {
     setSelectedFiles((prev) => {
-      if (prev.size === filteredFiles.length && filteredFiles.every((f) => prev.has(f.file_path))) {
-        return new Set();
+      const allFilteredSelected = filteredFiles.every((f) => prev.has(f.file_path));
+      if (allFilteredSelected) {
+        // Deselect only filtered files, keep others selected
+        const next = new Set(prev);
+        for (const f of filteredFiles) {
+          next.delete(f.file_path);
+        }
+        return next;
       }
-      return new Set(filteredFiles.map((f) => f.file_path));
+      // Select all filtered files, keep others selected
+      const next = new Set(prev);
+      for (const f of filteredFiles) {
+        next.add(f.file_path);
+      }
+      return next;
     });
   }, [filteredFiles]);
 
@@ -127,10 +139,20 @@ function App() {
     [selectedFiles]
   );
 
-  const allSelected = filteredFiles.length > 0 && filteredFiles.every((f) => selectedFiles.has(f.file_path));
+  const allSelected = useMemo(
+    () => filteredFiles.length > 0 && filteredFiles.every((f) => selectedFiles.has(f.file_path)),
+    [filteredFiles, selectedFiles]
+  );
 
   const handleCleanFolder = useCallback(async () => {
     if (selectedFiles.size === 0) return;
+
+    if (!dryRun) {
+      const confirmed = window.confirm(
+        `Are you sure you want to organize ${selectedFiles.size} file(s)? This will move files into category folders.`
+      );
+      if (!confirmed) return;
+    }
 
     try {
       setOrganizing(true);
@@ -169,7 +191,7 @@ function App() {
     } finally {
       setOrganizing(false);
     }
-  }, [selectedFiles, targetFolder, dryRun]);
+  }, [selectedFiles, targetFolder, dryRun, useNestedFolder]);
 
   const handleUndo = useCallback(async () => {
     try {
@@ -205,29 +227,20 @@ function App() {
     return map;
   }, [previewMoves]);
 
-  // Categorize a file by extension (mirrors Rust's categorize_file)
-  const categorizeFile = (ext: string): string => {
-    const lower = ext.toLowerCase();
-    if (/^(pdf|doc|docx|xls|xlsx|ppt|pptx|txt|rtf|odt|ods|odp|csv|md)$/.test(lower)) return 'Documents';
-    if (/^(jpg|jpeg|png|gif|bmp|svg|webp|ico|tiff|tif|avif)$/.test(lower)) return 'Images';
-    if (/^(mp4|avi|mkv|mov|wmv|flv|webm|m4v)$/.test(lower)) return 'Videos';
-    if (/^(mp3|wav|flac|aac|ogg|wma|m4a)$/.test(lower)) return 'Audio';
-    if (/^(zip|rar|7z|tar|gz|bz2|xz|iso)$/.test(lower)) return 'Archives';
-    if (/^(exe|msi|dmg|pkg|sh|bat|cmd|ps1)$/.test(lower)) return 'Executables';
-    if (/^(js|ts|jsx|tsx|py|rs|go|java|c|cpp|h|hpp|css|scss|html|json|xml|yaml|yml|toml|sql|rb|php|swift|kt)$/.test(lower)) return 'Code';
-    return 'Others';
-  };
-
-  // Compute category breakdown from all discovered files
+  // Compute category breakdown from all discovered files (using backend-provided categories)
   const categoryBreakdown = useMemo(() => {
-    const categories = ['Documents', 'Images', 'Videos', 'Audio', 'Archives', 'Executables', 'Code', 'Others'];
+    const categories = ['Documents', 'Images', 'Videos', 'Audio', 'Archives', 'Executables', 'Shortcuts', 'Code', 'Others'];
     const sizes: Record<string, number> = {};
     for (const cat of categories) sizes[cat] = 0;
 
     let totalSize = 0;
     for (const file of files) {
-      const cat = categorizeFile(file.file_extension);
-      sizes[cat] += file.file_size;
+      const cat = file.category;
+      if (cat in sizes) {
+        sizes[cat] += file.file_size;
+      } else {
+        sizes['Others'] += file.file_size;
+      }
       totalSize += file.file_size;
     }
 
@@ -240,16 +253,17 @@ function App() {
     return { sizes, totalSize, categories };
   }, [files]);
 
-  // Distinct premium colors for each category
+  // Monochrome palette for category breakdown bar
   const categoryColors: Record<string, string> = {
-    Documents: '#3b82f6',    // Blue
-    Images: '#a855f7',       // Purple
-    Videos: '#f97316',       // Orange
-    Audio: '#10b981',        // Emerald
-    Archives: '#f43f5e',     // Rose
-    Executables: '#14b8a6',  // Teal
-    Code: '#eab308',         // Yellow
-    Others: '#6b7280',       // Gray
+    Documents:   '#1A1A1A',  // Deep charcoal
+    Images:      '#3A3A3A',  // Dark gray
+    Videos:      '#5A5A5A',  // Mid-dark gray
+    Audio:       '#7A7A7A',  // Mid gray
+    Archives:    '#9A9A9A',  // Light-mid gray
+    Executables: '#BABABA',  // Light gray
+    Shortcuts:   '#D5D5D5',  // Pale gray
+    Code:        '#E8E8E8',  // Near-white
+    Others:      '#F0F0F0',  // Almost white
   };
 
   // Format helpers
@@ -261,17 +275,19 @@ function App() {
   };
 
   // Display path for the header
+  const isDesktop = targetFolder.replace(/[/\\]/g, '\\').toLowerCase().endsWith('\\desktop')
+    && !targetFolder.replace(/[/\\]/g, '\\').toLowerCase().includes('\\public\\desktop');
   const displayPath = loading
     ? 'Scanning...'
     : targetFolder
-      ? targetFolder
-      : 'C:\\Users\\Kamran\\Downloads';
+      ? (isDesktop ? `${targetFolder} (+ Public Desktop)` : targetFolder)
+      : 'Default Downloads folder';
 
   return (
     <div className="app-container">
     <div className="dashboard">
       {/* Header */}
-      <header className="dashboard-header">
+      <header className="dashboard-header animate-entrance anim-delay-0">
         <div className="header-left">
           <h1>Desktop Organizer</h1>
           <div className="path-row">
@@ -350,7 +366,7 @@ function App() {
       )}
 
       {/* Summary Cards */}
-      <section className="summary-grid">
+      <section className="summary-grid animate-entrance anim-delay-100">
         <div className="summary-card">
           <div className="card-icon files">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -369,7 +385,7 @@ function App() {
           </div>
         </div>
 
-        <div className="summary-card">
+        <div className="summary-card dark">
           <div className="card-icon space">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
@@ -386,50 +402,79 @@ function App() {
         </div>
       </section>
 
-      {/* Category Breakdown Bar */}
+      {/* Category Breakdown Donut Chart */}
       {!loading && files.length > 0 && categoryBreakdown.totalSize > 0 && (
-        <section className="breakdown-section">
+        <section className="breakdown-section animate-entrance anim-delay-200">
           <div className="breakdown-header">
             <h3>📊 Storage Breakdown</h3>
             <span className="breakdown-total">{formatFileSize(categoryBreakdown.totalSize)} total</span>
           </div>
-          <div className="breakdown-bar">
-            {categoryBreakdown.categories.map((cat) => {
-              const pct = categoryBreakdown.totalSize > 0
-                ? (categoryBreakdown.sizes[cat] / categoryBreakdown.totalSize) * 100
-                : 0;
-              if (pct < 0.5) return null; // hide tiny segments
-              return (
-                <div
-                  key={cat}
-                  className="breakdown-segment"
-                  style={{
-                    width: `${pct}%`,
-                    backgroundColor: categoryColors[cat],
-                  }}
-                  title={`${cat}: ${formatFileSize(categoryBreakdown.sizes[cat])} (${pct.toFixed(1)}%)`}
+          <div className="breakdown-content">
+            {/* Vertical Legend */}
+            <div className="breakdown-legend">
+              {categoryBreakdown.categories.map((cat) => {
+                const pct = categoryBreakdown.totalSize > 0
+                  ? (categoryBreakdown.sizes[cat] / categoryBreakdown.totalSize) * 100
+                  : 0;
+                if (categoryBreakdown.sizes[cat] === 0) return null;
+                return (
+                  <div key={cat} className="legend-item">
+                    <span
+                      className="legend-dot"
+                      style={{ backgroundColor: categoryColors[cat] }}
+                    />
+                    <span className="legend-label">{cat}</span>
+                    <span className="legend-size">{formatFileSize(categoryBreakdown.sizes[cat])}</span>
+                    <span className="legend-pct">{pct.toFixed(1)}%</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Donut Chart */}
+            <div className="donut-container">
+              <svg className="donut-chart" viewBox="0 0 100 100">
+                {/* Background track */}
+                <circle
+                  cx="50" cy="50" r="40"
+                  stroke="#F0F0F0"
+                  fill="transparent"
+                  strokeWidth="10"
                 />
-              );
-            })}
-          </div>
-          <div className="breakdown-legend">
-            {categoryBreakdown.categories.map((cat) => {
-              const pct = categoryBreakdown.totalSize > 0
-                ? (categoryBreakdown.sizes[cat] / categoryBreakdown.totalSize) * 100
-                : 0;
-              if (categoryBreakdown.sizes[cat] === 0) return null;
-              return (
-                <div key={cat} className="legend-item">
-                  <span
-                    className="legend-dot"
-                    style={{ backgroundColor: categoryColors[cat] }}
-                  />
-                  <span className="legend-label">{cat}</span>
-                  <span className="legend-size">{formatFileSize(categoryBreakdown.sizes[cat])}</span>
-                  <span className="legend-pct">({pct.toFixed(1)}%)</span>
-                </div>
-              );
-            })}
+                {/* Stacked segments - calculate cumulative dashoffset */}
+                {(() => {
+                  const circumference = 2 * Math.PI * 40; // ~251.2
+                  let cumulativeOffset = 0;
+                  const activeCategories = categoryBreakdown.categories.filter(
+                    (cat) => categoryBreakdown.sizes[cat] > 0
+                  );
+                  return activeCategories.map((cat, idx) => {
+                    const pct = (categoryBreakdown.sizes[cat] / categoryBreakdown.totalSize) * 100;
+                    const segmentLength = (pct / 100) * circumference;
+                    const offset = -cumulativeOffset;
+                    cumulativeOffset += segmentLength;
+                    return (
+                      <circle
+                        key={cat}
+                        cx="50" cy="50" r="40"
+                        stroke={categoryColors[cat]}
+                        fill="transparent"
+                        strokeWidth="10"
+                        strokeDasharray={`${segmentLength} ${circumference - segmentLength}`}
+                        strokeDashoffset={offset}
+                        strokeLinecap="butt"
+                        className="donut-ring-animate"
+                        style={{ animationDelay: `${idx * 120}ms` }}
+                      />
+                    );
+                  });
+                })()}
+              </svg>
+              <div className="donut-center">
+                <span className="donut-value">{formatFileSize(categoryBreakdown.totalSize)}</span>
+                <span className="donut-label">Total</span>
+              </div>
+            </div>
           </div>
         </section>
       )}
@@ -523,7 +568,7 @@ function App() {
 
       {/* Data Table */}
       {!loading && files.length > 0 && (
-        <section className="table-container">
+        <section className="table-container animate-entrance anim-delay-300">
           <div className="table-scroll">
             <table className="data-table">
               <thead>

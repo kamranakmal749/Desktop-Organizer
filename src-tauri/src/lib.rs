@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
 use tauri::Manager;
@@ -10,24 +10,11 @@ pub struct UnorganizedFile {
     pub file_path: String,
     pub file_extension: String,
     pub file_size: f64,
+    pub category: String,
 }
 
-#[tauri::command]
-async fn get_unorganized_files(target_path: String) -> Result<Vec<UnorganizedFile>, String> {
-    let scan_path = if target_path.is_empty() {
-        get_downloads_folder()?
-    } else {
-        let p = PathBuf::from(&target_path);
-        if !p.exists() {
-            return Err(format!("The specified path does not exist: {}", target_path));
-        }
-        if !p.is_dir() {
-            return Err(format!("The specified path is not a directory: {}", target_path));
-        }
-        p
-    };
-
-    let entries = fs::read_dir(&scan_path)
+fn scan_directory(scan_path: &PathBuf) -> Result<Vec<UnorganizedFile>, String> {
+    let entries = fs::read_dir(scan_path)
         .map_err(|e| format!("Failed to read folder: {}", e))?;
 
     let mut files: Vec<UnorganizedFile> = Vec::new();
@@ -63,9 +50,96 @@ async fn get_unorganized_files(target_path: String) -> Result<Vec<UnorganizedFil
         files.push(UnorganizedFile {
             file_name,
             file_path: path.to_string_lossy().to_string(),
-            file_extension,
+            file_extension: file_extension.clone(),
             file_size,
+            category: categorize_file(&file_extension.to_lowercase()).to_string(),
         });
+    }
+
+    Ok(files)
+}
+
+fn is_desktop_path(path: &PathBuf) -> bool {
+    let path_str = path.to_string_lossy().to_lowercase().replace('/', "\\");
+    // Match user Desktop (e.g., C:\Users\<name>\Desktop) but not Public Desktop
+    path_str.ends_with("\\desktop") && !path_str.contains("\\public\\desktop")
+}
+
+fn get_public_desktop() -> Option<PathBuf> {
+    if let Ok(public) = std::env::var("PUBLIC") {
+        let public_desktop = PathBuf::from(&public).join("Desktop");
+        if public_desktop.exists() && public_desktop.is_dir() {
+            return Some(public_desktop);
+        }
+    }
+    None
+}
+
+fn get_user_desktop() -> Option<PathBuf> {
+    if let Ok(profile) = std::env::var("USERPROFILE") {
+        let desktop = PathBuf::from(&profile).join("Desktop");
+        if desktop.exists() && desktop.is_dir() {
+            return Some(desktop);
+        }
+    }
+    None
+}
+
+fn is_protected_path(path: &PathBuf) -> bool {
+    let path_str = path.to_string_lossy().to_lowercase().replace('/', "\\");
+    path_str.contains("\\public\\desktop")
+}
+
+fn resolve_collision(target_dir: &PathBuf, file_name: &std::ffi::OsStr) -> PathBuf {
+    let dest = target_dir.join(file_name);
+    if !dest.exists() {
+        return dest;
+    }
+    let stem = dest.file_stem().and_then(|s| s.to_str()).unwrap_or("file").to_string();
+    let ext = dest.extension().and_then(|e| e.to_str()).unwrap_or("").to_string();
+    let ext_str = if ext.is_empty() { String::new() } else { format!(".{}", ext) };
+    let mut counter = 1;
+    loop {
+        let new_name = format!("{} ({}){}", stem, counter, ext_str);
+        let new_path = target_dir.join(&new_name);
+        if !new_path.exists() {
+            return new_path;
+        }
+        counter += 1;
+    }
+}
+
+#[tauri::command]
+async fn get_unorganized_files(targetPath: String) -> Result<Vec<UnorganizedFile>, String> {
+    let scan_path = if targetPath.is_empty() {
+        get_downloads_folder()?
+    } else {
+        let p = PathBuf::from(&targetPath);
+        if !p.exists() {
+            return Err(format!("The specified path does not exist: {}", targetPath));
+        }
+        if !p.is_dir() {
+            return Err(format!("The specified path is not a directory: {}", targetPath));
+        }
+        p
+    };
+
+    let mut files = scan_directory(&scan_path)?;
+
+    // If scanning a Desktop folder, also scan Public Desktop and merge
+    if is_desktop_path(&scan_path) {
+        if let Some(public_desktop) = get_public_desktop() {
+            let public_files = scan_directory(&public_desktop)?;
+            let existing_names: HashSet<String> = files
+                .iter()
+                .map(|f| f.file_name.to_lowercase())
+                .collect();
+            for pf in public_files {
+                if !existing_names.contains(&pf.file_name.to_lowercase()) {
+                    files.push(pf);
+                }
+            }
+        }
     }
 
     // Sort by file_name for consistent ordering
@@ -101,6 +175,11 @@ pub struct OrganizeResponse {
 /// History file format stored inside Organized_Files.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct OrganizationHistory {
+    pub entries: Vec<OrganizationEntry>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct OrganizationEntry {
     pub target_path: String,
     pub file_moves: Vec<FileMove>,
 }
@@ -121,6 +200,8 @@ fn categorize_file(extension: &str) -> &'static str {
         "zip" | "rar" | "7z" | "tar" | "gz" | "bz2" | "xz" | "iso" => "Archives",
         // Executables
         "exe" | "msi" | "dmg" | "pkg" | "sh" | "bat" | "cmd" | "ps1" => "Executables",
+        // Shortcuts
+        "lnk" | "url" | "webloc" => "Shortcuts",
         // Code files
         "js" | "ts" | "jsx" | "tsx" | "py" | "rs" | "go" | "java" | "c" | "cpp"
         | "h" | "hpp" | "css" | "scss" | "html" | "json" | "xml" | "yaml" | "yml"
@@ -256,12 +337,19 @@ async fn execute_organization(request: OrganizeRequest) -> Result<OrganizeRespon
         moved_count += 1;
     }
 
-    // Write history file
-    let history = OrganizationHistory {
+    // Write history file (append to existing history)
+    let history_path = organized_root.join("history.json");
+    let mut history = if history_path.exists() {
+        let content = fs::read_to_string(&history_path)
+            .map_err(|e| format!("Failed to read history file: {}", e))?;
+        serde_json::from_str(&content).unwrap_or(OrganizationHistory { entries: Vec::new() })
+    } else {
+        OrganizationHistory { entries: Vec::new() }
+    };
+    history.entries.push(OrganizationEntry {
         target_path: base.to_string_lossy().to_string(),
         file_moves: file_moves.clone(),
-    };
-    let history_path = organized_root.join("history.json");
+    });
     let history_json = serde_json::to_string_pretty(&history)
         .map_err(|e| format!("Failed to serialize history: {}", e))?;
     fs::write(&history_path, history_json)
@@ -279,16 +367,16 @@ async fn execute_organization(request: OrganizeRequest) -> Result<OrganizeRespon
 }
 
 #[tauri::command]
-async fn revert_organization(target_path: String) -> Result<String, String> {
-    let base = if target_path.is_empty() {
+async fn revert_organization(targetPath: String) -> Result<String, String> {
+    let base = if targetPath.is_empty() {
         get_downloads_folder()?
     } else {
-        let p = PathBuf::from(&target_path);
+        let p = PathBuf::from(&targetPath);
         if !p.exists() {
-            return Err(format!("Target folder does not exist: {}", target_path));
+            return Err(format!("Target folder does not exist: {}", targetPath));
         }
         if !p.is_dir() {
-            return Err(format!("The specified path is not a directory: {}", target_path));
+            return Err(format!("The specified path is not a directory: {}", targetPath));
         }
         p
     };
@@ -314,22 +402,28 @@ async fn revert_organization(target_path: String) -> Result<String, String> {
     // Read and parse history
     let history_content = fs::read_to_string(&history_path)
         .map_err(|e| format!("Failed to read history file: {}", e))?;
-    let history: OrganizationHistory = serde_json::from_str(&history_content)
+    let mut history: OrganizationHistory = serde_json::from_str(&history_content)
         .map_err(|e| format!("Failed to parse history file: {}", e))?;
 
-    if history.file_moves.is_empty() {
+    if history.entries.is_empty() {
         // Remove empty history and folder
         let _ = fs::remove_file(&history_path);
         let _ = fs::remove_dir(&organized_root);
         return Ok("Nothing to revert.".to_string());
     }
 
+    // Pop the most recent entry
+    let last_entry = history.entries.pop().unwrap();
+    let file_moves = last_entry.file_moves;
+
     // Track which category dirs had files moved out of them
     let mut affected_categories: HashMap<String, bool> = HashMap::new();
     let mut reverted_count = 0u32;
+    let mut redirected_files: Vec<String> = Vec::new();
+    let mut failed_files: Vec<String> = Vec::new();
 
     // Iterate in reverse order to undo moves
-    for fm in history.file_moves.iter().rev() {
+    for fm in file_moves.iter().rev() {
         let src = PathBuf::from(&fm.new_path);
         let dst = PathBuf::from(&fm.original_path);
 
@@ -339,15 +433,67 @@ async fn revert_organization(target_path: String) -> Result<String, String> {
 
         // Ensure the parent directory of the original path exists
         if let Some(parent) = dst.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create parent directory: {}", e))?;
+            if let Err(e) = fs::create_dir_all(parent) {
+                // Parent creation failed — try redirect to user Desktop
+                if let Some(user_desktop) = get_user_desktop() {
+                    let file_name = src.file_name().unwrap_or_default();
+                    let redirect_dst = resolve_collision(&user_desktop, file_name);
+                    if fs::rename(&src, &redirect_dst).is_ok() {
+                        affected_categories.insert(fm.category.clone(), true);
+                        reverted_count += 1;
+                        redirected_files.push(redirect_dst.to_string_lossy().to_string());
+                        continue;
+                    }
+                }
+                failed_files.push(format!("{} ({})", fm.original_path, e));
+                continue;
+            }
         }
 
-        fs::rename(&src, &dst)
-            .map_err(|e| format!("Failed to revert '{}': {}", fm.new_path, e))?;
+        // Handle collision: if original path is occupied, append a suffix
+        let final_dst = if dst.exists() {
+            let stem = dst.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
+            let extension = dst.extension().and_then(|e| e.to_str()).unwrap_or("");
+            let ext = if extension.is_empty() {
+                String::new()
+            } else {
+                format!(".{}", extension)
+            };
+            let mut counter = 1;
+            loop {
+                let new_name = format!("{} (reverted {}){}", stem, counter, ext);
+                let new_path = dst.parent().unwrap_or(&dst).join(&new_name);
+                if !new_path.exists() {
+                    break new_path;
+                }
+                counter += 1;
+            }
+        } else {
+            dst.clone()
+        };
 
-        affected_categories.insert(fm.category.clone(), true);
-        reverted_count += 1;
+        match fs::rename(&src, &final_dst) {
+            Ok(()) => {
+                affected_categories.insert(fm.category.clone(), true);
+                reverted_count += 1;
+            }
+            Err(_) => {
+                // Access denied or other error — try redirect to user Desktop
+                if is_protected_path(&dst) {
+                    if let Some(user_desktop) = get_user_desktop() {
+                        let file_name = src.file_name().unwrap_or_default();
+                        let redirect_dst = resolve_collision(&user_desktop, file_name);
+                        if fs::rename(&src, &redirect_dst).is_ok() {
+                            affected_categories.insert(fm.category.clone(), true);
+                            reverted_count += 1;
+                            redirected_files.push(redirect_dst.to_string_lossy().to_string());
+                            continue;
+                        }
+                    }
+                }
+                failed_files.push(format!("{} ({})", fm.original_path, "Access is denied"));
+            }
+        }
     }
 
     // Remove empty category directories
@@ -356,18 +502,41 @@ async fn revert_organization(target_path: String) -> Result<String, String> {
         let _ = fs::remove_dir(&cat_dir);
     }
 
-    // Remove history file
-    let _ = fs::remove_file(&history_path);
+    // Update or remove history file
+    if history.entries.is_empty() {
+        let _ = fs::remove_file(&history_path);
+    } else {
+        let history_json = serde_json::to_string_pretty(&history)
+            .map_err(|e| format!("Failed to serialize history: {}", e))?;
+        fs::write(&history_path, history_json)
+            .map_err(|e| format!("Failed to write history file: {}", e))?;
+    }
 
     // Remove Sorted Workspace root if empty (only for nested mode)
     if organized_root != base {
         let _ = fs::remove_dir(&organized_root);
     }
 
-    Ok(format!(
+    let mut message = format!(
         "Successfully reverted {} file(s) back to their original locations.",
         reverted_count
-    ))
+    );
+    if !redirected_files.is_empty() {
+        message.push_str(&format!(
+            " {} file(s) redirected to your Desktop (original location was access-protected): {}",
+            redirected_files.len(),
+            redirected_files.join(", ")
+        ));
+    }
+    if !failed_files.is_empty() {
+        message.push_str(&format!(
+            " {} file(s) could not be moved: {}",
+            failed_files.len(),
+            failed_files.join(", ")
+        ));
+    }
+
+    Ok(message)
 }
 
 fn get_downloads_folder() -> Result<PathBuf, String> {
